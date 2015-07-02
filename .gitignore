@@ -42,3 +42,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 TranscribeTool.v12.suo
+
+# compile and build directories
+TranscribeTool/bin/*
+TranscribeTool/obj/*

@@ -89,6 +89,12 @@
     <Content Include="Icon1.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>xcopy "$(TargetDir)*.exe" "$(SolutionDir)$bin\" /Y
+xcopy "$(TargetDir)*.dll" "$(SolutionDir)$bin\" /Y
+xcopy "$(TargetDir)*.config" "$(SolutionDir)$bin\" /Y
+del "$(SolutionDir)$bin\*vshost*"</PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
