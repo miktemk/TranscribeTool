@@ -18,11 +18,13 @@ namespace TranscribeTool
         public AudioPlaya Playa { get; set; }
         private Timer ttt, tttAutoSave;
         private bool isDisposing = false;
-        private string filename, filenameMp3;
+        private string filenameMp3;
+        private TranscriberLogic logic;
 
         public Form1()
         {
             InitializeComponent();
+            logic = new TranscriberLogic();
             labelTime.Text = "Drag audio!";
             ttt = new Timer();
             ttt.Tick += ttt_Tick;
@@ -34,6 +36,15 @@ namespace TranscribeTool
             tttAutoSave.Start();
         }
 
+        private string FilenameTxt {
+            get {
+                return logic.FnameMp3ToText(filenameMp3);
+            }
+        }
+
+        #region ========================= UI events =======================================
+
+        private void Form1_Load(object sender, EventArgs e) { }
         private void tttAutoSave_Tick(object sender, EventArgs e)
         {
             if (isDisposing)
@@ -44,7 +55,7 @@ namespace TranscribeTool
             }
             Invoke(new MethodInvoker(delegate
             {
-                AutoSave();
+                SaveTextFile();
             }));
         }
 
@@ -66,18 +77,14 @@ namespace TranscribeTool
         {
             if (e.Control && e.KeyCode == Keys.S)
             {
-                if (e.Shift)
-                    TriggerSaveAs();
-                else
-                    TriggerSave();
+                SaveTextFile();
                 e.SuppressKeyPress = true;
             }
             if (e.Control && e.KeyCode == Keys.O)
             {
                 var dialog = new OpenFileDialog();
                 if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK) {
-                    filename = dialog.FileName;
-                    OpenTextFile();
+                    OpenAnyFile(dialog.FileName);
                 }
                 e.SuppressKeyPress = true;
             }
@@ -107,101 +114,6 @@ namespace TranscribeTool
             }
         }
 
-        private void TriggerSave()
-        {
-            if (filename != null) {
-                AutoSave();
-                return;
-            }
-            TriggerSaveAs();
-        }
-
-        private void AutoSave()
-        {
-            if (filename == null)
-                return;
-            if (String.IsNullOrWhiteSpace(richTextBox1.Text))
-                return;
-            SaveTextFile();
-            txtSaved.Text = "last save @ " + DateTime.Now.ToString();
-        }
-
-        private void OpenTextFile()
-        {
-            if (!File.Exists(filename))
-                return;
-            var lines = File.ReadAllLines(filename);
-            var lines2 = lines.AsEnumerable();
-            if (lines.Length >= 2)
-            {
-                var line1 = lines2.FirstOrDefault();
-                if (!String.IsNullOrEmpty(line1) && line1.StartsWith("MP3:"))
-                {
-                    var mp3Filename = line1.Replace("MP3:", "");
-                    if (!String.IsNullOrWhiteSpace(mp3Filename))
-                        loadMp3(mp3Filename);
-                    lines2 = lines2.Skip(1);
-                    var line2 = lines2.FirstOrDefault();
-                    if (!String.IsNullOrEmpty(line2) && line2.StartsWith("LastTime:"))
-                    {
-                        var prevTs = TimeSpan.Zero;
-                        if (Playa != null && TimeSpan.TryParse(line2.Replace("LastTime:", ""), out prevTs))
-                            Playa.Position = prevTs;
-                        lines2 = lines2.Skip(1);
-                        // skip the extra newline after header (see SaveTextFile below)
-                        if (String.IsNullOrEmpty(lines2.FirstOrDefault()))
-                            lines2 = lines2.Skip(1);
-                    }
-                }
-            }
-            richTextBox1.Text = String.Join("\n", lines2);
-        }
-        private void SaveTextFile()
-        {
-            var playerPos = (Playa != null)
-                ? Playa.Position.ToString()
-                : TimeSpan.Zero.ToString();
-            string text = String.Format("MP3:{0}\nLastTime:{1}\n\n{2}", filenameMp3, playerPos, richTextBox1.Text);
-            File.WriteAllText(filename, text);
-        }
-
-        private void TriggerSaveAs()
-        {
-            if (String.IsNullOrWhiteSpace(richTextBox1.Text))
-                return;
-            var dialog = new SaveFileDialog();
-            var result = dialog.ShowDialog();
-            if (result != System.Windows.Forms.DialogResult.OK)
-                return;
-            filename = dialog.FileName;
-            AutoSave();
-        }
-
-
-        private void Form1_DragDrop(object sender, DragEventArgs e)
-        {
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            var file1 = files.FirstOrDefault();
-            if (file1 == null)
-                return;
-            if (Path.GetExtension(file1).ToLower() != ".mp3")
-                return;
-            // we are good, an mp3 file is dragged in!
-            loadMp3(file1);
-        }
-
-        private void loadMp3(string file1)
-        {
-            // unload old mp3
-            if (Playa != null) {
-                Playa.Stop();
-                Playa.Dispose();
-            }
-            filenameMp3 = file1;
-            Playa = new AudioPlaya(file1);
-            Trace.WriteLine(file1 + " dragged in!!!!!!");
-        }
-
         private void Form1_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -223,13 +135,77 @@ Recorded on: {2}
 #endif
         }
 
-        
+        private void Form1_DragDrop(object sender, DragEventArgs e)
+        {
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var file1 = files.FirstOrDefault();
+            if (file1 == null)
+                return;
+            Trace.WriteLine(file1 + " dragged in!!!!!!");
+            OpenAnyFile(file1);
+        }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
             isDisposing = true;
         }
 
+        #endregion
+
+        #region ========================= privates =======================================
+
+        private void OpenAnyFile(string fname)
+        {
+            if (Path.GetExtension(fname).ToLower() == ".mp3")
+                filenameMp3 = fname;
+            if (Path.GetExtension(fname).ToLower() == ".md")
+            {
+                filenameMp3 = logic.FnameTextToMp3(fname);
+                if (!File.Exists(filenameMp3))
+                {
+                    MessageBox.Show("No Mp3 file found: " + Path.GetFileName(filenameMp3), "No Mp3 file!");
+                }
+            }
+            loadMp3();
+            loadTextFile();
+        }
+
+        private void loadMp3()
+        {
+            // unload old mp3
+            if (Playa != null)
+            {
+                Playa.Stop();
+                Playa.Dispose();
+            }
+            Playa = new AudioPlaya(filenameMp3);
+        }
+
+        private void loadTextFile()
+        {
+            txtSaved.Text = "last save @ ---";
+            if (!File.Exists(FilenameTxt))
+            {
+                richTextBox1.Text = "";
+                return;
+            }
+            var text = File.ReadAllText(FilenameTxt);
+            var text2 = logic.ParseApplyAndRemoveInvisibleMetadata(text, Playa);
+            richTextBox1.Text = text2;
+        }
+
+        private void SaveTextFile()
+        {
+            if (FilenameTxt == null)
+                return;
+            if (String.IsNullOrWhiteSpace(richTextBox1.Text))
+                return;
+            var text = logic.AddInvisibleMetadata(richTextBox1.Text, Playa, filenameMp3);
+            File.WriteAllText(FilenameTxt, text);
+            txtSaved.Text = "last save @ " + DateTime.Now.ToString();
+        }
+
+        #endregion
 
     }
 }
